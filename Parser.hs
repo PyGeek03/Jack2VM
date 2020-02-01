@@ -119,8 +119,9 @@ parseSubVars = helper [] 0
         | kind == "var" =
             let names = getVarNames xs'
                 symbols' = updateSymbols "var" typing names count symbols
+                count' = count + length names
                 (consumed, ys) = splitVarTokens names xs
-            in helper (VarDec consumed : rvars) (count+1) symbols' ys
+            in helper (VarDec consumed : rvars) count' symbols' ys
     helper rvars _ symbols [] = (reverse rvars, symbols, [])
     helper _ _ _ _ = error "Error: Subroutine variables declaration"
 
@@ -129,16 +130,17 @@ parseStatements = helper [] 0
   where
     helper :: [Statement] -> Int -> SymbolTable -> [Token]
         -> (Statements, [Token])
-    helper rStms _     _       xs@(SYM '}':_) = (Statements $ reverse rStms, xs)
+    helper rStms _ _ xs@(SYM '}':_) = (Statements $ reverse rStms, xs)
     helper rStms count symbols xs =
         let (ID sub) = varType $ symbols Map.! "sub-name"
-            label = sub ++ show count
+            label = sub ++ "." ++ show count
+            symbols' = Map.insert "sub-name" (VarProps "" $ ID label) symbols
             (newStm, ys) = case xs of
-                (KW "let":_)    -> parseLet symbols xs
-                (KW "if":_)     -> parseIf label symbols xs
-                (KW "while":_)  -> parseWhile label symbols xs
-                (KW "do":_)     -> parseDo symbols xs
-                (KW "return":_) -> parseReturn symbols xs
+                (KW "let":_)    -> parseLet symbols' xs
+                (KW "if":_)     -> parseIf label symbols' xs
+                (KW "while":_)  -> parseWhile label symbols' xs
+                (KW "do":_)     -> parseDo symbols' xs
+                (KW "return":_) -> parseReturn symbols' xs
                 _               -> error "Error: Statements declaration"
         in helper (newStm : rStms) (count+1) symbols ys
 
@@ -175,11 +177,11 @@ parseWhile _ _ _ = error "Error: While statement declaration"
 
 parseDo :: SymbolTable -> [Token] -> (Statement, [Token])
 parseDo symbols xs =
-    let (ID cl) = varType $ symbols Map.! "class-name"
+    let (ID cls) = varType $ symbols Map.! "class-name"
         (doSubCall, us) = case xs of
-            (KW "do":ID cls:SYM '.':ID sub:SYM '(':ys) -> (Do cls True sub, ys)
-            (KW "do":ID sub:SYM '(':ys)                -> (Do cl False sub, ys)
-            _ -> error "Error: Do statement declaration"
+            (KW "do":ID name:SYM '.':ID sub:SYM '(':ys) -> (Do name True cls sub, ys)
+            (KW "do":ID sub:SYM '(':ys)                 -> (Do cls False cls sub, ys)
+            _   -> error "Error: Do statement declaration"
         (args, SYM ')':SYM ';':zs) = parseExpressionList symbols us
     in (doSubCall args, zs)
 
@@ -212,9 +214,10 @@ parseExpression symbols xs =
     in (Expression root mFollow, zs)
 
 parseTerm :: SymbolTable -> [Token] -> (Term, [Token])
-parseTerm symbols (ID cls:SYM '.':ID sub:SYM '(':xs) =
-    let (args, SYM ')':ys) = parseExpressionList symbols xs
-    in (Call cls sub args, ys)
+parseTerm symbols (ID var:SYM '.':ID sub:SYM '(':xs) =
+    let (ID cls) = varType $ symbols Map.! "class-name"
+        (args, SYM ')':ys) = parseExpressionList symbols xs
+    in (Call var cls sub args, ys)
 parseTerm symbols (ID arr:SYM '[':xs) =
     let mapping = varMap $ symbols Map.! arr
         (index, SYM ']':ys) = parseExpression symbols xs

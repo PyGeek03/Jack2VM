@@ -79,25 +79,12 @@ instance Show Statements where
                              "</statements>"
 
 data Statement
-    = LetArr { letArr        :: !String
-             , letArrMapping :: !String
-             , letArrIndex   :: !Expression
-             , letArrValue   :: !Expression }
-    | LetVar { letVar        :: !String
-             , letVarMapping :: !String
-             , letVarValue   :: !Expression }
-    | If { ifCond     :: !Expression
-         , thenClause :: !Statements
-         , elseClause :: Maybe Statements
-         , ifLabel    :: !String }
-    | While { whileCond  :: !Expression
-            , whileDo    :: !Statements
-            , whileLabel :: !String }
-    | Do { doCls  :: !String
-         , hasCls :: !Bool
-         , doSub  :: !String
-         , doArgs :: !ExpressionList }
-    | Return { returnValue :: Maybe Expression }
+    = LetArr !String !String !Expression !Expression
+    | LetVar !String !String !Expression
+    | If    !Expression !Statements (Maybe Statements) !String
+    | While !Expression !Statements !String
+    | Do !String !Bool !String !String !ExpressionList
+    | Return (Maybe Expression)
 instance Show Statement where
     show (LetArr arr _ i value) = "<letStatement>\n\
                                   \<keyword> let </keyword>\n\
@@ -141,23 +128,71 @@ instance Show Statement where
                                ++ shows loop "\n\
                                \<symbol> } </symbol>\n\
                                \</whileStatement>"
-    show (Do className explicit subroutineName exprList) = 
-        let showsClsName = if explicit
-            then (++) ("<identifier> " ++ className ++" </identifier>\n\
+    -- show (LetArr array mapping index value) = 
+    --     "<letStatement>\n\
+    --     \<keyword> let </keyword>\n\
+    --     \<identifier mapping = \"" ++ mapping
+    --     ++ "\"> "++ array ++ " </identifier>\n\
+    --     \<symbol> [ </symbol>\n"
+    --     ++ shows index "\n\
+    --     \<symbol> ] </symbol>\n\
+    --     \<symbol> = </symbol>\n"
+    --     ++ shows value "\n\
+    --     \<symbol> ; </symbol>\n\
+    --     \</letStatement>"
+    -- show (LetVar var mapping value) = "<letStatement>\n\
+    --                                   \<keyword> let </keyword>\n\
+    --                                   \<identifier mapping = \"" ++ mapping
+    --                                   ++ "\"> " ++ var ++ " </identifier>\n\
+    --                                   \<symbol> = </symbol>\n"
+    --                                   ++ shows value "\n\
+    --                                   \<symbol> ; </symbol>\n\
+    --                                   \</letStatement>"
+    -- show (If cond thenDo elseDo label) = "<ifStatement label = \""
+    --                                      ++ label ++ "\">\n\
+    --                                      \<keyword> if </keyword>\n\
+    --                                      \<symbol> ( </symbol>\n"
+    --                                      ++ shows cond "\n\
+    --                                      \<symbol> ) </symbol>\n\
+    --                                      \<symbol> { </symbol>\n"
+    --                                      ++ shows thenDo "\n\
+    --                                      \<symbol> } </symbol>\n"
+    --                                      ++ showsElse elseDo
+    --                                      "</ifStatement>"
+    --   where
+    --     showsElse (Just s) = (++) ("<keyword> else </keyword>\n\
+    --                                \<symbol> { </symbol>\n"
+    --                                ++ shows s "\n\
+    --                                \<symbol> } </symbol>\n")
+    --     showsElse Nothing = (++) ""
+    -- show (While cond loop label) = "<whileStatement label = \""
+    --                                ++ label ++ "\">\n\
+    --                                \<keyword> while </keyword>\n\
+    --                                \<symbol> ( </symbol>\n"
+    --                                ++ shows cond "\n\
+    --                                \<symbol> ) </symbol>\n\
+    --                                \<symbol> { </symbol>\n"
+    --                                ++ shows loop "\n\
+    --                                \<symbol> } </symbol>\n\
+    --                                \</whileStatement>"
+    -- show (Do var explicitVar cls sub args) = 
+    show (Do var explicitVar _ sub args) = 
+        let showsVarName = if explicitVar
+            then (++) ("<identifier> " ++ var ++" </identifier>\n\
                        \<symbol> . </symbol>\n")
             else (++) ""
         in "<doStatement>\n\
            \<keyword> do </keyword>\n"
-           ++ showsClsName
-           "<identifier> " ++ subroutineName ++ " </identifier>\n\
+           ++ showsVarName
+           "<identifier> " ++ sub ++ " </identifier>\n\
            \<symbol> ( </symbol>\n"
-           ++ shows exprList "\n\
+           ++ shows args "\n\
            \<symbol> ) </symbol>\n\
            \<symbol> ; </symbol>\n\
            \</doStatement>"
-    show (Return mexp) = "<returnStatement>\n\
+    show (Return value) = "<returnStatement>\n\
                          \<keyword> return </keyword>\n"
-                         ++ showsMaybeExp mexp
+                         ++ showsMaybeExp value
                          "<symbol> ; </symbol>\n\
                          \</returnStatement>"
       where
@@ -185,27 +220,22 @@ instance Show Expression where
         showsFollow Nothing = (++) ""
 
 data Term 
-    = Call { callCls  :: !String
-           , callSub  :: !String
-           , callArgs :: !ExpressionList }
-    | Arr { arrToGet   :: !String
-          , arrMapping :: !String
-          , arrIndex   :: !Expression }
-    | Var { varToGet   :: !String
-          , varMapping :: !String }
+    = Call !String !String !String !ExpressionList
+    | Arr !String !String !Expression
+    | Var !String !String
     | Parens !Expression
-    | Unary { unaryOp   :: !Token
-            , unaryTerm :: !Term }
+    | Unary !Token !Term
     | Const !Token
 instance Show Term where
-    show (Call c s as) = "<term>\n\
-                         \<identifier> " ++ c ++ " </identifier>\n\
-                         \<symbol> . </symbol>\n\
-                         \<identifier> " ++ s ++ " </identifier>\n\
-                         \<symbol> ( </symbol>\n"
-                         ++ shows as "\n\
-                         \<symbol> ) </symbol>\n\
-                         \</term>"
+    -- show (Call var cls sub args) = "<term>\n\
+    show (Call var _ sub args) = "<term>\n\
+                                 \<identifier> " ++ var ++ " </identifier>\n\
+                                 \<symbol> . </symbol>\n\
+                                 \<identifier> " ++ sub ++ " </identifier>\n\
+                                 \<symbol> ( </symbol>\n"
+                                 ++ shows args "\n\
+                                 \<symbol> ) </symbol>\n\
+                                 \</term>"
     show (Arr a _ i) = "<term>\n\
                        \<identifier> " ++ a ++ " </identifier>\n\
                        \<symbol> [ </symbol>\n"
@@ -215,15 +245,26 @@ instance Show Term where
     show (Var v _) = "<term>\n\
                      \<identifier> " ++ v ++ " </identifier>\n\
                      \</term>"
-    show (Parens e) = "<term>\n\
-                      \<symbol> ( </symbol>\n"
-                      ++ shows e "\n\
-                      \<symbol> ) </symbol>\n\
-                      \</term>"
-    show (Unary op t) = "<term>\n"
-                        ++ shows op "\n"
-                        ++ shows t "\n\
-                        \</term>"
+    -- show (Arr arr mapping index) = "<term>\n\
+    --                                \<identifier mapping = \"" ++ mapping
+    --                                ++ "\"> " ++ arr ++ " </identifier>\n\
+    --                                \<symbol> [ </symbol>\n"
+    --                                ++ shows index "\n\
+    --                                \<symbol> ] </symbol>\n\
+    --                                \</term>"
+    -- show (Var var mapping) = "<term>\n\
+    --                          \<identifier mapping = \"" ++ mapping
+    --                          ++ "\"> " ++ var ++ " </identifier>\n\
+    --                          \</term>"
+    show (Parens expr) = "<term>\n\
+                         \<symbol> ( </symbol>\n"
+                         ++ shows expr "\n\
+                         \<symbol> ) </symbol>\n\
+                         \</term>"
+    show (Unary op term) = "<term>\n"
+                           ++ shows op "\n"
+                           ++ shows term "\n\
+                           \</term>"
     show (Const c) = "<term>\n"
                      ++ shows c "\n\
                      \</term>"

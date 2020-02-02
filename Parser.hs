@@ -1,8 +1,9 @@
 module Parser
 (parse) where
 import qualified Data.Map.Strict as Map
+import Data.Char (isUpper)
 
-import Tokens hiding (keywords, symbols)
+import Tokens
 import ProgramStructure
 
 -- Export
@@ -10,16 +11,16 @@ parse :: Tokens -> Class
 parse = parseClass
 
 -- Utilities
-data VarProps = VarProps { varMap  :: !String
-                         , varType :: !Token }
+data VarProps = VarProps { varMap   :: !String
+                         , varToken :: !Token }
 type SymbolTable = Map.Map String VarProps
 
 getVarNames :: [Token] -> [String]
 getVarNames = helper []
   where
     helper :: [String] -> [Token] -> [String]
-    helper vars (ID name:SYM ',':xs) = helper (name : vars) xs
-    helper vars (ID name:SYM ';':_)  = name : vars
+    helper rvars (ID name:SYM ',':xs) = helper (name : rvars) xs
+    helper rvars (ID name:SYM ';':_)  = reverse $ name : rvars
     helper _ _ = error "Error: Variable name declaration"
 
 splitVarTokens :: [String] -> [Token] -> ([Token], [Token])
@@ -51,43 +52,47 @@ parseClass _ = error "Error: Class declaration"
 
 parseClassVars :: [Token] -> ([ClassVarDec], SymbolTable, [Token])
 parseClassVars = 
-    helper [] (Map.fromList [("field", 0), ("static", 0)]) Map.empty
+    helper [] (Map.fromList [("field", VarProps "" $ IC 0), ("static", VarProps "" $ IC 0)])
   where
     subKinds = ["constructor", "method", "function"]
-    helper :: [ClassVarDec] -> (Map.Map String Int) -> SymbolTable -> [Token]
+    helper :: [ClassVarDec] -> SymbolTable -> [Token]
         -> ([ClassVarDec], SymbolTable, [Token])
-    helper rvars counts symbols xs@(KW kind:typing:xs')
+    helper rvars symbols xs@(KW kind:typing:xs')
         | kind `elem` subKinds = (reverse rvars, symbols, xs)
-        | otherwise = 
+        | otherwise =
             let names = getVarNames xs'
-                count = counts Map.! kind
-                symbols' = updateSymbols kind typing names count symbols
-                counts'  = Map.insert kind (count + length names) counts
+                (IC count) = varToken $ symbols Map.! kind
+                symbols'  = updateSymbols kind typing names count symbols
+                newCount  = count + length names
+                symbols'' = Map.insert kind (VarProps "" $ IC newCount) symbols'
                 (consumed, ys) = splitVarTokens names xs
-            in helper (ClassVarDec consumed : rvars) counts' symbols' ys
-    helper rvars _ symbols [] = (reverse rvars, symbols, [])
-    helper _ _ _ _ = error "Error: Class variable declaration"
+            in helper (ClassVarDec consumed : rvars) symbols'' ys
+    helper rvars symbols [] = (reverse rvars, symbols, [])
+    helper _ _ _ = error "Error: Class variable declaration"
 
 parseSubs :: SymbolTable -> [Token] -> [SubDec]
 parseSubs = helper []
   where
     helper :: [SubDec] -> SymbolTable -> [Token] -> [SubDec]
-    helper rsubs _       (SYM '}':[]) = reverse rsubs
+    helper rsubs _       (SYM '}':_) = reverse rsubs
     helper rsubs symbols xs =
         let (sub, ys) = parseSub symbols xs
         in helper (sub : rsubs) symbols ys
 
 parseSub :: SymbolTable -> [Token] -> (SubDec, [Token])
 parseSub symbols (KW kind:typing:ID name:SYM '(':xs) =
-    let (ID cls)   = varType $ symbols Map.! "class-name"
-        (params, symbols', ys) = parseSubParams symbols xs
+    let (ID cls)   = varToken $ symbols Map.! "class-name"
+        (IC fieldCount) = varToken $ symbols Map.! "field"
+        (params, symbols', ys) = case kind of
+            "method" -> parseSubParams 1 symbols xs
+            _        -> parseSubParams 0 symbols xs
         symbols''  = Map.insert "sub-name" (VarProps "" $ ID name) symbols'
         (body, zs) = parseSubBody symbols'' ys
-    in (SubDec kind typing cls name params body, zs)
+    in (SubDec kind typing cls fieldCount name params body, zs)
 parseSub _ _ = error "Error: Subroutine declaration"
 
-parseSubParams :: SymbolTable -> [Token] -> ([Token], SymbolTable, [Token])
-parseSubParams = helper [] 0
+parseSubParams :: Int -> SymbolTable -> [Token] -> ([Token], SymbolTable, [Token])
+parseSubParams = helper []
   where
     helper :: [Token] -> Int -> SymbolTable -> [Token]
         -> ([Token], SymbolTable, [Token])
@@ -103,26 +108,26 @@ parseSubParams = helper [] 0
 
 parseSubBody :: SymbolTable -> [Token] -> (SubBody, [Token])
 parseSubBody symbols (SYM '{':xs) =
-    let (vars, symbols',     ys) = parseSubVars symbols xs
+    let (count, vars, symbols',     ys) = parseSubVars symbols xs
         (statements, SYM '}':zs) = parseStatements symbols' ys
-    in (SubBody vars statements, zs)
+    in (SubBody count vars statements, zs)
 parseSubBody _ _ = error "Error: Subroutine body definition"
 
-parseSubVars :: SymbolTable -> [Token] -> ([VarDec], SymbolTable, [Token])
+parseSubVars :: SymbolTable -> [Token] -> (Int, [VarDec], SymbolTable, [Token])
 parseSubVars = helper [] 0
   where
     statementKinds = ["let", "if", "while", "do", "return"]
     helper :: [VarDec] -> Int -> SymbolTable -> [Token] 
-        -> ([VarDec], SymbolTable, [Token])
+        -> (Int, [VarDec], SymbolTable, [Token])
     helper rvars count symbols xs@(KW kind:typing:xs')
-        | kind `elem` statementKinds = (reverse rvars, symbols, xs)
+        | kind `elem` statementKinds = (count, reverse rvars, symbols, xs)
         | kind == "var" =
             let names = getVarNames xs'
                 symbols' = updateSymbols "var" typing names count symbols
                 count' = count + length names
                 (consumed, ys) = splitVarTokens names xs
             in helper (VarDec consumed : rvars) count' symbols' ys
-    helper rvars _ symbols [] = (reverse rvars, symbols, [])
+    helper rvars count symbols [] = (count, reverse rvars, symbols, [])
     helper _ _ _ _ = error "Error: Subroutine variables declaration"
 
 parseStatements :: SymbolTable -> [Token] -> (Statements, [Token])
@@ -132,13 +137,13 @@ parseStatements = helper [] 0
         -> (Statements, [Token])
     helper rStms _ _ xs@(SYM '}':_) = (Statements $ reverse rStms, xs)
     helper rStms count symbols xs =
-        let (ID sub) = varType $ symbols Map.! "sub-name"
-            label = sub ++ "." ++ show count
-            symbols' = Map.insert "sub-name" (VarProps "" $ ID label) symbols
+        let (ID sub) = varToken $ symbols Map.! "sub-name"
+            labelID = sub ++ "." ++ show count
+            symbols' = Map.insert "sub-name" (VarProps "" $ ID labelID) symbols
             (newStm, ys) = case xs of
                 (KW "let":_)    -> parseLet symbols' xs
-                (KW "if":_)     -> parseIf label symbols' xs
-                (KW "while":_)  -> parseWhile label symbols' xs
+                (KW "if":_)     -> parseIf labelID symbols' xs
+                (KW "while":_)  -> parseWhile labelID symbols' xs
                 (KW "do":_)     -> parseDo symbols' xs
                 (KW "return":_) -> parseReturn symbols' xs
                 _               -> error "Error: Statements declaration"
@@ -146,18 +151,18 @@ parseStatements = helper [] 0
 
 parseLet :: SymbolTable -> [Token] -> (Statement, [Token])
 parseLet symbols (KW "let":ID arr:SYM '[':xs) = 
-    let mapping = varMap $ symbols Map.! arr
+    let push = "push " ++ varMap (symbols Map.! arr)
         (index, SYM ']':SYM '=':ys) = parseExpression symbols xs
         (value, SYM ';':zs) = parseExpression symbols ys
-    in (LetArr arr mapping index value, zs)
+    in (LetArr arr push index value, zs)
 parseLet symbols (KW "let":ID var:SYM '=':xs) = 
-    let mapping = varMap $ symbols Map.! var
+    let pop = "pop " ++ varMap (symbols Map.! var)
         (value, SYM ';':ys) = parseExpression symbols xs
-    in (LetVar var mapping value, ys)
+    in (LetVar var pop value, ys)
 parseLet _ _ = error "Error: Let statement declaration"
 
 parseIf :: String -> SymbolTable -> [Token] -> (Statement, [Token])
-parseIf label symbols (KW "if":SYM '(':as) =
+parseIf labelID symbols (KW "if":SYM '(':as) =
     let (cond, SYM ')':SYM '{':bs) = parseExpression symbols as
         (thenStmts,    SYM '}':cs) = parseStatements symbols bs
         (mElseStmts, ds) = case cs of
@@ -165,25 +170,32 @@ parseIf label symbols (KW "if":SYM '(':as) =
                 let (stms, SYM '}':fs) = parseStatements symbols es
                 in (Just stms, fs)
             _ -> (Nothing, cs)
-    in (If cond thenStmts mElseStmts label, ds)
+    in (If cond thenStmts mElseStmts labelID, ds)
 parseIf _ _ _ = error "Error: If statement declaration"
 
 parseWhile :: String -> SymbolTable -> [Token] -> (Statement, [Token])
-parseWhile label symbols (KW "while":SYM '(':xs) =
+parseWhile labelID symbols (KW "while":SYM '(':xs) =
     let (cond, SYM ')':SYM '{':ys) = parseExpression symbols xs
         (stms,         SYM '}':zs) = parseStatements symbols ys
-    in (While cond stms label, zs)
+    in (While cond stms labelID, zs)
 parseWhile _ _ _ = error "Error: While statement declaration"
 
 parseDo :: SymbolTable -> [Token] -> (Statement, [Token])
-parseDo symbols xs =
-    let (ID cls) = varType $ symbols Map.! "class-name"
-        (doSubCall, us) = case xs of
-            (KW "do":ID name:SYM '.':ID sub:SYM '(':ys) -> (Do name True cls sub, ys)
-            (KW "do":ID sub:SYM '(':ys)                 -> (Do cls False cls sub, ys)
-            _   -> error "Error: Do statement declaration"
-        (args, SYM ')':SYM ';':zs) = parseExpressionList symbols us
-    in (doSubCall args, zs)
+parseDo symbols (KW "do":ID name:SYM '.':ID sub:SYM '(':xs) =
+    let nameIsClass = isUpper $ head name
+        (ID cls, mPush)
+            | nameIsClass = (ID name, Nothing)
+            | otherwise   = let var = symbols Map.! name
+                            in (varToken var, Just $ "push " ++ varMap var)
+        (args, SYM ')':SYM ';':ys) = parseExpressionList symbols xs
+        subCall = SubCall name mPush True cls sub args
+    in (Do subCall, ys)
+parseDo symbols (KW "do":ID sub:SYM '(':xs) =
+    let (ID cls) = varToken $ symbols Map.! "class-name"
+        (args, SYM ')':SYM ';':ys) = parseExpressionList symbols xs
+        subCall = SubCall cls (Just "push pointer 0") False cls sub args
+    in (Do subCall, ys)
+parseDo _ _ = error "Error: Do statement declaration"
 
 parseReturn :: SymbolTable -> [Token] -> (Statement, [Token])
 parseReturn _       (KW "return":SYM ';':xs) = (Return Nothing, xs)
@@ -207,6 +219,7 @@ parseExpressionList = helper []
 parseExpression :: SymbolTable -> [Token] -> (Expression, [Token])
 parseExpression symbols xs =
     let (root, ys@(SYM op:ys')) = parseTerm symbols xs
+        ops = "+-*/&|<>="
         (mFollow, zs)
             | op `elem` ops = let (term, cs) = parseTerm symbols ys'
                               in (Just (SYM op, term), cs)           
@@ -214,17 +227,26 @@ parseExpression symbols xs =
     in (Expression root mFollow, zs)
 
 parseTerm :: SymbolTable -> [Token] -> (Term, [Token])
-parseTerm symbols (ID var:SYM '.':ID sub:SYM '(':xs) =
-    let (ID cls) = varType $ symbols Map.! "class-name"
+parseTerm symbols (ID name:SYM '.':ID sub:SYM '(':xs) =
+    let nameIsClass = isUpper $ head name
+        (ID cls, mPush)
+            | nameIsClass = (ID name, Nothing)
+            | otherwise   = let var = symbols Map.! name
+                            in (varToken var, Just $ "push " ++ varMap var)
         (args, SYM ')':ys) = parseExpressionList symbols xs
-    in (Call var cls sub args, ys)
+        subCall = SubCall name mPush True cls sub args
+    in (Call subCall, ys)
+parseTerm symbols (ID sub:SYM '(':xs) =
+    let (ID cls) = varToken $ symbols Map.! "class-name"
+        (args, SYM ')':ys) = parseExpressionList symbols xs
+        subCall = SubCall cls (Just "push pointer 0") False cls sub args
+    in (Call subCall, ys)
 parseTerm symbols (ID arr:SYM '[':xs) =
-    let mapping = varMap $ symbols Map.! arr
+    let push = "push " ++ varMap (symbols Map.! arr)
         (index, SYM ']':ys) = parseExpression symbols xs
-    in (Arr arr mapping index, ys)
+    in (Arr arr push index, ys)
 parseTerm symbols (ID var:xs) =
-    let mapping = varMap $ symbols Map.! var
-    in (Var var mapping, xs)
+    (Var var $ "push " ++ varMap (symbols Map.! var), xs)
 parseTerm symbols (SYM '(':xs) =
     let (expr, SYM ')':ys) = parseExpression symbols xs
     in (Parens expr, ys)
@@ -232,5 +254,6 @@ parseTerm symbols (SYM op:xs)
     | op `elem` unaryOps = let (term, ys) = parseTerm symbols xs
                            in (Unary (SYM op) term, ys)
     | otherwise = error "Error: Invalid unary operator"
+  where unaryOps = ['-','~']
 parseTerm _ (constant:xs) = (Const constant, xs)
 parseTerm _ _ = error "Error: Term declaration"

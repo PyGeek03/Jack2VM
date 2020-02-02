@@ -1,15 +1,10 @@
 module ProgramStructure where
-import Data.List (unlines, intercalate)
+import Data.List  (intercalate)
+import Data.Maybe (fromMaybe)
 
 import Tokens
 
 -- Utilities
-ops :: [Char]
-ops = "+-*/&|<>="
-
-unaryOps :: [Char]
-unaryOps = ['-','~']
-
 showsLines :: Show a => [a] -> String -> String
 showsLines linesList = (++) (unlines $ map show linesList)
 
@@ -38,6 +33,7 @@ data SubDec
     = SubDec { subKind   :: !String
              , subType   :: !Token
              , subClass  :: !String
+             , clsFields :: !Int
              , subName   :: !String
              , subParams :: ![Token]
              , subBody   :: !SubBody }
@@ -55,10 +51,12 @@ instance Show SubDec where
               \</subroutineDec>"
 
 data SubBody 
-    = SubBody { subVars       :: ![VarDec]
+    = SubBody { varCount      :: !Int
+              , subVars       :: ![VarDec]
               , subStatements :: !Statements }
 instance Show SubBody where
-    show sb = "<subroutineBody>\n\
+    show sb = "<subroutineBody nVars = \""
+              ++ show (varCount sb) ++ "\">\n\
               \<symbol> { </symbol>\n"
               ++ (showsLines (subVars sb)
               . shows (subStatements sb)) "\n\
@@ -81,123 +79,87 @@ instance Show Statements where
 data Statement
     = LetArr !String !String !Expression !Expression
     | LetVar !String !String !Expression
-    | If    !Expression !Statements (Maybe Statements) !String
-    | While !Expression !Statements !String
-    | Do !String !Bool !String !String !ExpressionList
+    | If     !Expression !Statements (Maybe Statements) !String
+    | While  !Expression !Statements !String
+    | Do     !SubCall
     | Return (Maybe Expression)
 instance Show Statement where
-    show (LetArr arr _ i value) = "<letStatement>\n\
-                                  \<keyword> let </keyword>\n\
-                                  \<identifier> "++ arr ++ " </identifier>\n\
-                                  \<symbol> [ </symbol>\n"
-                                  ++ shows i "\n\
-                                  \<symbol> ] </symbol>\n\
-                                  \<symbol> = </symbol>\n"
-                                  ++ shows value "\n\
-                                  \<symbol> ; </symbol>\n\
-                                  \</letStatement>"
-    show (LetVar var _ value) = "<letStatement>\n\
-                                 \<keyword> let </keyword>\n\
-                                 \<identifier> " ++ var ++ " </identifier>\n\
-                                 \<symbol> = </symbol>\n"
-                                 ++ shows value "\n\
-                                 \<symbol> ; </symbol>\n\
-                                 \</letStatement>"
-    show (If cond thenDo elseDo _) = "<ifStatement>\n\
-                                     \<keyword> if </keyword>\n\
-                                     \<symbol> ( </symbol>\n"
-                                     ++ shows cond "\n\
-                                     \<symbol> ) </symbol>\n\
-                                     \<symbol> { </symbol>\n"
-                                     ++ shows thenDo "\n\
-                                     \<symbol> } </symbol>\n"
-                                     ++ showsElse elseDo
-                                     "</ifStatement>"
+    show (LetArr array push index value) = 
+        "<letStatement>\n\
+        \<keyword> let </keyword>\n\
+        \<identifier push = \"" ++ push
+        ++ "\"> "++ array ++ " </identifier>\n\
+        \<symbol> [ </symbol>\n"
+        ++ shows index "\n\
+        \<symbol> ] </symbol>\n\
+        \<symbol> = </symbol>\n"
+        ++ shows value "\n\
+        \<symbol> ; </symbol>\n\
+        \</letStatement>"
+    show (LetVar var pop value) = "<letStatement>\n\
+                                      \<keyword> let </keyword>\n\
+                                      \<identifier pop = \"" ++ pop
+                                      ++ "\"> " ++ var ++ " </identifier>\n\
+                                      \<symbol> = </symbol>\n"
+                                      ++ shows value "\n\
+                                      \<symbol> ; </symbol>\n\
+                                      \</letStatement>"
+    show (If cond thenDo elseDo labelID) = "<ifStatement labelID = \""
+                                         ++ labelID ++ "\">\n\
+                                         \<keyword> if </keyword>\n\
+                                         \<symbol> ( </symbol>\n"
+                                         ++ shows cond "\n\
+                                         \<symbol> ) </symbol>\n\
+                                         \<symbol> { </symbol>\n"
+                                         ++ shows thenDo "\n\
+                                         \<symbol> } </symbol>\n"
+                                         ++ showsElse elseDo
+                                         "</ifStatement>"
       where
         showsElse (Just s) = (++) ("<keyword> else </keyword>\n\
                                    \<symbol> { </symbol>\n"
                                    ++ shows s "\n\
                                    \<symbol> } </symbol>\n")
         showsElse Nothing = (++) ""
-    show (While cond loop _) = "<whileStatement>\n\
-                               \<keyword> while </keyword>\n\
-                               \<symbol> ( </symbol>\n"
-                               ++ shows cond "\n\
-                               \<symbol> ) </symbol>\n\
-                               \<symbol> { </symbol>\n"
-                               ++ shows loop "\n\
-                               \<symbol> } </symbol>\n\
-                               \</whileStatement>"
-    -- show (LetArr array mapping index value) = 
-    --     "<letStatement>\n\
-    --     \<keyword> let </keyword>\n\
-    --     \<identifier mapping = \"" ++ mapping
-    --     ++ "\"> "++ array ++ " </identifier>\n\
-    --     \<symbol> [ </symbol>\n"
-    --     ++ shows index "\n\
-    --     \<symbol> ] </symbol>\n\
-    --     \<symbol> = </symbol>\n"
-    --     ++ shows value "\n\
-    --     \<symbol> ; </symbol>\n\
-    --     \</letStatement>"
-    -- show (LetVar var mapping value) = "<letStatement>\n\
-    --                                   \<keyword> let </keyword>\n\
-    --                                   \<identifier mapping = \"" ++ mapping
-    --                                   ++ "\"> " ++ var ++ " </identifier>\n\
-    --                                   \<symbol> = </symbol>\n"
-    --                                   ++ shows value "\n\
-    --                                   \<symbol> ; </symbol>\n\
-    --                                   \</letStatement>"
-    -- show (If cond thenDo elseDo label) = "<ifStatement label = \""
-    --                                      ++ label ++ "\">\n\
-    --                                      \<keyword> if </keyword>\n\
-    --                                      \<symbol> ( </symbol>\n"
-    --                                      ++ shows cond "\n\
-    --                                      \<symbol> ) </symbol>\n\
-    --                                      \<symbol> { </symbol>\n"
-    --                                      ++ shows thenDo "\n\
-    --                                      \<symbol> } </symbol>\n"
-    --                                      ++ showsElse elseDo
-    --                                      "</ifStatement>"
-    --   where
-    --     showsElse (Just s) = (++) ("<keyword> else </keyword>\n\
-    --                                \<symbol> { </symbol>\n"
-    --                                ++ shows s "\n\
-    --                                \<symbol> } </symbol>\n")
-    --     showsElse Nothing = (++) ""
-    -- show (While cond loop label) = "<whileStatement label = \""
-    --                                ++ label ++ "\">\n\
-    --                                \<keyword> while </keyword>\n\
-    --                                \<symbol> ( </symbol>\n"
-    --                                ++ shows cond "\n\
-    --                                \<symbol> ) </symbol>\n\
-    --                                \<symbol> { </symbol>\n"
-    --                                ++ shows loop "\n\
-    --                                \<symbol> } </symbol>\n\
-    --                                \</whileStatement>"
-    -- show (Do var explicitVar cls sub args) = 
-    show (Do var explicitVar _ sub args) = 
-        let showsVarName = if explicitVar
-            then (++) ("<identifier> " ++ var ++" </identifier>\n\
-                       \<symbol> . </symbol>\n")
-            else (++) ""
-        in "<doStatement>\n\
-           \<keyword> do </keyword>\n"
-           ++ showsVarName
-           "<identifier> " ++ sub ++ " </identifier>\n\
-           \<symbol> ( </symbol>\n"
-           ++ shows args "\n\
-           \<symbol> ) </symbol>\n\
-           \<symbol> ; </symbol>\n\
-           \</doStatement>"
-    show (Return value) = "<returnStatement>\n\
-                         \<keyword> return </keyword>\n"
-                         ++ showsMaybeExp value
-                         "<symbol> ; </symbol>\n\
-                         \</returnStatement>"
+    show (While cond loop labelID) = "<whileStatement labelID = \""
+                                   ++ labelID ++ "\">\n\
+                                   \<keyword> while </keyword>\n\
+                                   \<symbol> ( </symbol>\n"
+                                   ++ shows cond "\n\
+                                   \<symbol> ) </symbol>\n\
+                                   \<symbol> { </symbol>\n"
+                                   ++ shows loop "\n\
+                                   \<symbol> } </symbol>\n\
+                                   \</whileStatement>"
+    show (Do subCall) = "<doStatement>\n\
+                        \<keyword> do </keyword>\n"
+                        ++ shows subCall    "\n\
+                        \<symbol> ; </symbol>\n\
+                        \</doStatement>"
+    show (Return mValue) = "<returnStatement>\n\
+                           \<keyword> return </keyword>\n"
+                         ++ showsMaybeExp mValue
+                           "<symbol> ; </symbol>\n\
+                           \</returnStatement>"
       where
         showsMaybeExp (Just e) = (++) (shows e "\n")
         showsMaybeExp Nothing  = (++) ""
+
+data SubCall = 
+    SubCall !String (Maybe String) !Bool !String !String !ExpressionList
+instance Show SubCall where
+    show (SubCall name mPush explicitName cls sub args) = 
+        let showsName = if explicitName
+            then (++) ("<identifier push = \"" ++ fromMaybe "" mPush
+                       ++ "\"> " ++ name ++" </identifier>\n\
+                       \<symbol> . </symbol>\n")
+            else (++) ""
+        in showsName
+           "<identifier class = \"" ++ cls 
+           ++ "\"> " ++ sub ++ " </identifier>\n\
+           \<symbol> ( </symbol>\n"
+           ++ shows args "\n\
+           \<symbol> ) </symbol>"
 
 -- Data types for expressions
 newtype ExpressionList = ExpressionList [Expression]
@@ -211,56 +173,36 @@ instance Show ExpressionList where
 
 data Expression = Expression !Term (Maybe (Token, Term))
 instance Show Expression where
-    show (Expression root mFollow) = "<expression>\n"
-                                   ++ shows root "\n"
-                                   ++ showsFollow mFollow
-                                   "</expression>"
+    show (Expression term1 mFollow) = "<expression>\n"
+                                    ++ shows term1 "\n"
+                                    ++ showsFollow mFollow
+                                      "</expression>"
       where
-        showsFollow (Just (op, term)) = (++) (shows op "\n" ++ shows term "\n")
+        showsFollow (Just (op, term2)) = (++) (shows op "\n" ++ shows term2 "\n")
         showsFollow Nothing = (++) ""
 
 data Term 
-    = Call !String !String !String !ExpressionList
-    | Arr !String !String !Expression
-    | Var !String !String
-    | Parens !Expression
+    = Call  !SubCall
+    | Arr   !String !String !Expression
+    | Var   !String !String
     | Unary !Token !Term
     | Const !Token
+    | Parens !Expression
 instance Show Term where
-    -- show (Call var cls sub args) = "<term>\n\
-    show (Call var _ sub args) = "<term>\n\
-                                 \<identifier> " ++ var ++ " </identifier>\n\
-                                 \<symbol> . </symbol>\n\
-                                 \<identifier> " ++ sub ++ " </identifier>\n\
-                                 \<symbol> ( </symbol>\n"
-                                 ++ shows args "\n\
-                                 \<symbol> ) </symbol>\n\
-                                 \</term>"
-    show (Arr a _ i) = "<term>\n\
-                       \<identifier> " ++ a ++ " </identifier>\n\
-                       \<symbol> [ </symbol>\n"
-                       ++ shows i "\n\
-                       \<symbol> ] </symbol>\n\
-                       \</term>"
-    show (Var v _) = "<term>\n\
-                     \<identifier> " ++ v ++ " </identifier>\n\
-                     \</term>"
-    -- show (Arr arr mapping index) = "<term>\n\
-    --                                \<identifier mapping = \"" ++ mapping
-    --                                ++ "\"> " ++ arr ++ " </identifier>\n\
-    --                                \<symbol> [ </symbol>\n"
-    --                                ++ shows index "\n\
-    --                                \<symbol> ] </symbol>\n\
-    --                                \</term>"
-    -- show (Var var mapping) = "<term>\n\
-    --                          \<identifier mapping = \"" ++ mapping
-    --                          ++ "\"> " ++ var ++ " </identifier>\n\
-    --                          \</term>"
-    show (Parens expr) = "<term>\n\
-                         \<symbol> ( </symbol>\n"
-                         ++ shows expr "\n\
-                         \<symbol> ) </symbol>\n\
-                         \</term>"
+    show (Call subCall) = "<term>\n"
+                          ++ shows subCall "\n\
+                          \</term>"
+    show (Arr arr push index) = "<term>\n\
+                                \<identifier push = \"" ++ push
+                                ++ "\"> " ++ arr ++ " </identifier>\n\
+                                \<symbol> [ </symbol>\n"
+                                ++ shows index "\n\
+                                \<symbol> ] </symbol>\n\
+                                \</term>"
+    show (Var var push) = "<term>\n\
+                             \<identifier push = \"" ++ push
+                             ++ "\"> " ++ var ++ " </identifier>\n\
+                             \</term>"
     show (Unary op term) = "<term>\n"
                            ++ shows op "\n"
                            ++ shows term "\n\
@@ -268,3 +210,8 @@ instance Show Term where
     show (Const c) = "<term>\n"
                      ++ shows c "\n\
                      \</term>"
+    show (Parens expr) = "<term>\n\
+                         \<symbol> ( </symbol>\n"
+                         ++ shows expr "\n\
+                         \<symbol> ) </symbol>\n\
+                         \</term>"

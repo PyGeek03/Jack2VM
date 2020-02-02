@@ -1,16 +1,6 @@
 module Tokens where 
 import Data.List (unlines)
 
--- Lexical elements
-keywords :: [String]
-keywords =  [ "class", "constructor", "function", "method", "field"
-            , "static", "var", "int", "char", "boolean", "void"
-            , "true", "false", "null", "this", "let", "do", "if"
-            , "else", "while", "return" ]
-
-symbols :: [Char]
-symbols = "{}()[].,;+-*/&|<>=~"
-
 -- Data type to "wrap" all tokens in one type
 data Token 
     = KW  !String

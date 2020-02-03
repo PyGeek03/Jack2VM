@@ -30,10 +30,7 @@ instance Compile SubDec where
                             \pop pointer 0"
                 "function" -> ""
                 _ -> error "Error: Invalid subroutine kind"
-        in toString [ ""
-                    , "//-------------------------------------------------"
-                    , "function " ++ func ++ " " ++ show nVars
-                    , "//-------------------------------------------------"
+        in toString [ "function " ++ func ++ " " ++ show nVars
                     ++ header
                     , compile $ subBody sub ]
 
@@ -41,7 +38,7 @@ instance Compile SubBody where
     compile = compile . subStatements
 
 instance Compile Statements where
-    compile (Statements stms) = toString $ map ((++) "\n" . compile) stms
+    compile (Statements stms) = toString $ map compile stms
 
 instance Compile Statement where
     compile (LetArr arr push index value) = toString [ push ++ "  // " ++ arr
@@ -56,9 +53,9 @@ instance Compile Statement where
     compile (LetVar var pop value) = compile value ++ "\n"
                                      ++ pop ++ "  // " ++ var
     compile (If cond thenDo mElseDo labelID) =
-        let true  = "THEN." ++ labelID
-            false = "ELSE." ++ labelID
-            end   = "END_IF." ++ labelID
+        let true  = "IF_TRUE" ++ labelID
+            false = "IF_FALSE" ++ labelID
+            end   = "IF_END" ++ labelID
         in toString [ compile cond
                     , "if-goto " ++ true
                     , "goto "    ++ false
@@ -70,8 +67,8 @@ instance Compile Statement where
                     , "label " ++ end
                     ]
     compile (While cond loop labelID) =
-        let while = "WHILE." ++ labelID
-            end   = "END_WHILE." ++ labelID
+        let while = "WHILE_EXP" ++ labelID
+            end   = "WHILE_END" ++ labelID
         in toString [ "label " ++ while
                     , compile cond
                     , "not"
@@ -90,13 +87,18 @@ instance Compile Statement where
 
 instance Compile SubCall where
     compile (SubCall _ mPush _ cls sub (ExpressionList exprs)) =
-        let thisForMethod = fromMaybe "" mPush
-            args  = toString (map compile exprs)
+        let thisForMethod = case mPush of
+                Nothing   -> ""
+                Just this -> this ++ "\n"
+            compiledExprs  = toString (map compile exprs)
+            args = case compiledExprs of
+                ""        -> ""
+                arguments -> arguments ++ "\n"
             func  = cls ++ "." ++ sub
             nArgs = length exprs + (fromEnum . not . null $ thisForMethod)
-        in toString [ thisForMethod
-                    , args
-                    , "call " ++ func ++ " " ++ show nArgs ]
+        in thisForMethod
+           ++ args
+           ++ "call " ++ func ++ " " ++ show nArgs
 
 instance Compile Expression where
     compile (Expression term1 mFollow) = case mFollow of

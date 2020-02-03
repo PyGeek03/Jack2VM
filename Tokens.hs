@@ -8,6 +8,8 @@ data Token
     | IC  !Int
     | SC  !String
     | ID  !String
+    | IF    !Int
+    | WHILE !Int
 instance Show Token where
     show (KW k) = "<keyword> " ++ k ++ " </keyword>"
     show (SYM s) = case s of
@@ -18,6 +20,8 @@ instance Show Token where
     show (IC ic) = "<integerConstant> " ++ shows ic " </integerConstant>"
     show (SC sc) = "<stringConstant> " ++ sc ++ " </stringConstant>"
     show (ID i) = "<identifier> " ++ i ++ " </identifier>"
+    show (IF i) = "<keyword ID = \"" ++ shows i "\"> if </keyword>"
+    show (WHILE i) = "<keyword ID = \"" ++ shows i "\"> while </keyword>"
 
 newtype Tokens = Tokens [Token]
 instance Show Tokens where

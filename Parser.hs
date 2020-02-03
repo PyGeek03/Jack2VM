@@ -86,8 +86,7 @@ parseSub symbols (KW kind:typing:ID name:SYM '(':xs) =
         (params, symbols', ys) = case kind of
             "method" -> parseSubParams 1 symbols xs
             _        -> parseSubParams 0 symbols xs
-        symbols''  = Map.insert "sub-name" (VarProps "" $ ID name) symbols'
-        (body, zs) = parseSubBody symbols'' ys
+        (body, zs) = parseSubBody symbols' ys
     in (SubDec kind typing cls fieldCount name params body, zs)
 parseSub _ _ = error "Error: Subroutine declaration"
 
@@ -116,9 +115,11 @@ parseSubBody _ _ = error "Error: Subroutine body definition"
 parseSubVars :: SymbolTable -> [Token] -> (Int, [VarDec], SymbolTable, [Token])
 parseSubVars = helper [] 0
   where
-    statementKinds = ["let", "if", "while", "do", "return"]
+    statementKinds = ["let", "do", "return"]
     helper :: [VarDec] -> Int -> SymbolTable -> [Token] 
         -> (Int, [VarDec], SymbolTable, [Token])
+    helper rvars count symbols xs@(WHILE _:_) = (count, reverse rvars, symbols, xs)
+    helper rvars count symbols xs@(IF    _:_) = (count, reverse rvars, symbols, xs)
     helper rvars count symbols xs@(KW kind:typing:xs')
         | kind `elem` statementKinds = (count, reverse rvars, symbols, xs)
         | kind == "var" =
@@ -131,23 +132,20 @@ parseSubVars = helper [] 0
     helper _ _ _ _ = error "Error: Subroutine variables declaration"
 
 parseStatements :: SymbolTable -> [Token] -> (Statements, [Token])
-parseStatements = helper [] 0
+parseStatements = helper []
   where
-    helper :: [Statement] -> Int -> SymbolTable -> [Token]
+    helper :: [Statement] -> SymbolTable -> [Token]
         -> (Statements, [Token])
-    helper rStms _ _ xs@(SYM '}':_) = (Statements $ reverse rStms, xs)
-    helper rStms count symbols xs =
-        let (ID sub) = varToken $ symbols Map.! "sub-name"
-            labelID = sub ++ "." ++ show count
-            symbols' = Map.insert "sub-name" (VarProps "" $ ID labelID) symbols
-            (newStm, ys) = case xs of
-                (KW "let":_)    -> parseLet symbols' xs
-                (KW "if":_)     -> parseIf labelID symbols' xs
-                (KW "while":_)  -> parseWhile labelID symbols' xs
-                (KW "do":_)     -> parseDo symbols' xs
-                (KW "return":_) -> parseReturn symbols' xs
+    helper rStms _ xs@(SYM '}':_) = (Statements $ reverse rStms, xs)
+    helper rStms symbols xs =
+        let (newStm, ys) = case xs of
+                (KW "let":_)    -> parseLet symbols xs
+                (KW "do":_)     -> parseDo symbols xs
+                (KW "return":_) -> parseReturn symbols xs
+                (IF    _:_)     -> parseIf symbols xs
+                (WHILE _:_)     -> parseWhile symbols xs
                 _               -> error "Error: Statements declaration"
-        in helper (newStm : rStms) (count+1) symbols ys
+        in helper (newStm : rStms) symbols ys
 
 parseLet :: SymbolTable -> [Token] -> (Statement, [Token])
 parseLet symbols (KW "let":ID arr:SYM '[':xs) = 
@@ -161,9 +159,10 @@ parseLet symbols (KW "let":ID var:SYM '=':xs) =
     in (LetVar var pop value, ys)
 parseLet _ _ = error "Error: Let statement declaration"
 
-parseIf :: String -> SymbolTable -> [Token] -> (Statement, [Token])
-parseIf labelID symbols (KW "if":SYM '(':as) =
-    let (cond, SYM ')':SYM '{':bs) = parseExpression symbols as
+parseIf :: SymbolTable -> [Token] -> (Statement, [Token])
+parseIf symbols (IF count:SYM '(':as) =
+    let labelID = show count
+        (cond, SYM ')':SYM '{':bs) = parseExpression symbols as
         (thenStmts,    SYM '}':cs) = parseStatements symbols bs
         (mElseStmts, ds) = case cs of
             KW "else":SYM '{':es -> 
@@ -171,14 +170,15 @@ parseIf labelID symbols (KW "if":SYM '(':as) =
                 in (Just stms, fs)
             _ -> (Nothing, cs)
     in (If cond thenStmts mElseStmts labelID, ds)
-parseIf _ _ _ = error "Error: If statement declaration"
+parseIf _ _ = error "Error: If statement declaration"
 
-parseWhile :: String -> SymbolTable -> [Token] -> (Statement, [Token])
-parseWhile labelID symbols (KW "while":SYM '(':xs) =
-    let (cond, SYM ')':SYM '{':ys) = parseExpression symbols xs
+parseWhile :: SymbolTable -> [Token] -> (Statement, [Token])
+parseWhile symbols (WHILE count:SYM '(':xs) =
+    let labelID = show count
+        (cond, SYM ')':SYM '{':ys) = parseExpression symbols xs
         (stms,         SYM '}':zs) = parseStatements symbols ys
     in (While cond stms labelID, zs)
-parseWhile _ _ _ = error "Error: While statement declaration"
+parseWhile _ _ = error "Error: While statement declaration"
 
 parseDo :: SymbolTable -> [Token] -> (Statement, [Token])
 parseDo symbols (KW "do":ID name:SYM '.':ID sub:SYM '(':xs) =
